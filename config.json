@@ -1,0 +1,10 @@
+{
+    "apikey": "XXX",
+    "mailTo": "email@email.com",
+    "bucket": "mdcloud-files",
+    "sqs": "mdcloud-messages",
+    "snsEmail": "mdcloud-topic-notifications",
+    "sns": "mdcloud-topic",
+    "uploadEndpoint": "https://scan.metadefender.com/v2/file",
+    "api": "https://api.metadefender.com"
+}

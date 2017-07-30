@@ -1,0 +1,111 @@
+service: s3-mdcloud
+custom: ${file(./config.json)}
+
+provider:
+  name: aws
+  runtime: nodejs6.10
+  memorySize: 128
+  timeout: 20
+  region: us-east-1
+  environment:
+    apikey: ${self:custom.apikey}
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "s3:*"
+      Resource: "*"
+    - Effect: "Allow"
+      Action:
+        - sqs:DeleteMessage
+        - sqs:ReceiveMessage
+        - sqs:SendMessage
+      Resource: "arn:aws:sqs:*:*:${self:custom.sqs}"
+    - Effect: "Allow"
+      Action:
+        - "sns:*"
+      Resource: "arn:aws:sns:*:*:${self:custom.snsEmail}"
+    - Effect: "Allow"
+      Action:
+        - "lambda:InvokeFunction"
+      Resource:
+        - "*"
+
+package:
+ exclude:
+   - node_modules/aws-sdk/**
+   - event_samples/**
+   - .vscode/**
+
+functions:
+  task:
+    handler: task.handler
+    name: task
+    environment:
+      sqs: ${self:custom.sqs}
+
+  scan:
+    handler: scan.handler
+    name: scan
+    environment:
+      sqs: ${self:custom.sqs}
+    events:
+      - s3:
+          bucket: ${self:custom.bucket}
+          event: s3:ObjectCreated:*
+
+  worker:
+    handler: worker.handler
+    name: worker
+    environment:
+      sqs: ${self:custom.sqs}
+      lambda: task
+    events:
+      - schedule: rate(1 minute)
+      - sns: ${self:custom.sns}
+
+resources:
+  Resources:
+    BacklogQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.sqs}
+        MessageRetentionPeriod: '1209600'
+        VisibilityTimeout: '60'
+        RedrivePolicy:
+          deadLetterTargetArn:
+            Fn::GetAtt:
+            - DeadLetterQueue
+            - Arn
+          maxReceiveCount: '10'
+
+    DeadLetterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.sqs}-dead-letter-queue
+        MessageRetentionPeriod: '1209600'
+
+    QueueDepthAlarmOver100:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmDescription: Alarm if queue depth grows beyond 100 messages
+        Namespace: AWS/SQS
+        MetricName: NumberOfMessagesVisible
+        Dimensions:
+        - Name: QueueName
+          Value: ${self:custom.sqs}
+        Statistic: Sum
+        Period: '60'
+        EvaluationPeriods: '1'
+        Threshold: '100'
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        AlarmActions:
+        - { "Fn::Join" : ["", ["arn:aws:sns:${self:provider.region}:", { "Ref" : "AWS::AccountId" }, ":${self:custom.sns}" ] ]  }
+
+    MailQueue:
+      Type: AWS::SNS::Topic
+      Properties:
+        DisplayName: "Serverless Mail"
+        TopicName: ${self:custom.snsEmail}
+        Subscription:
+          - Endpoint: ${self:custom.mailTo}
+            Protocol: "email"
