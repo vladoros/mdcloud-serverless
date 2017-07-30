@@ -1,4 +1,4 @@
-service: s3-mdcloud
+service: mdcloud-serverless
 custom: ${file(./config.json)}
 
 provider:
